@@ -8,20 +8,16 @@ import { revalidatePath } from 'next/cache'
 export async function recomputeLeaderboardCache() {
   const supabase = createAdminClient()
 
-  // 1. Fetch Teams
-  const { data: teams } = await supabase
-    .from('teams')
-    .select('id, room_id, name, code, rooms(name)')
+  // 1. Fetch Teams, Members, Answers in PARALLEL
+  const [teamsRes, membersRes, answersRes] = await Promise.all([
+    supabase.from('teams').select('id, room_id, name, code, rooms(name)'),
+    supabase.from('members').select('id, team_id, name, is_leader'),
+    supabase.from('answers').select('id, question_run_id, member_id, team_id, option, points, received_at'),
+  ])
 
-  // 2. Fetch Members
-  const { data: members } = await supabase
-    .from('members')
-    .select('id, team_id, name, is_leader')
-
-  // 3. Fetch Answers
-  const { data: answers } = await supabase
-    .from('answers')
-    .select('id, question_run_id, member_id, team_id, option, points, received_at')
+  const teams = teamsRes.data
+  const members = membersRes.data
+  const answers = answersRes.data
 
   if (!teams || !members) return { success: false, error: 'No data to compute.' }
 

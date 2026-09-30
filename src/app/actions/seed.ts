@@ -29,27 +29,31 @@ export async function ensureDefaultEventAndRooms() {
     event = newEvent
   }
 
-  // 2. Ensure 10 rooms exist
+  // 2. Fetch existing rooms in 1 single query
+  const { data: existingRooms } = await supabase
+    .from('rooms')
+    .select('registration_token')
+    .eq('event_id', event.id)
+
+  const existingTokens = new Set((existingRooms || []).map((r) => r.registration_token))
+
+  // 3. Filter missing default rooms
   const defaultRooms = Array.from({ length: 10 }, (_, i) => {
     const roomNum = i + 1
+    const token = `room-${roomNum < 10 ? '0' + roomNum : roomNum}`
     return {
       event_id: event!.id,
       name: `Lab Room ${roomNum < 10 ? '0' + roomNum : roomNum}`,
-      registration_token: `room-${roomNum < 10 ? '0' + roomNum : roomNum}`,
+      registration_token: token,
       registration_open: true,
     }
   })
 
-  for (const r of defaultRooms) {
-    const { data: existing } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('registration_token', r.registration_token)
-      .maybeSingle()
+  const missingRooms = defaultRooms.filter((r) => !existingTokens.has(r.registration_token))
 
-    if (!existing) {
-      await supabase.from('rooms').insert(r)
-    }
+  // 4. Batch insert missing rooms all at once
+  if (missingRooms.length > 0) {
+    await supabase.from('rooms').insert(missingRooms)
   }
 
   return { success: true }
