@@ -29,48 +29,75 @@ export async function getAdminOverviewData() {
     return { success: false, error: 'Failed to initialize event.' }
   }
 
-  // 2. Fetch Rooms with team count
-  const { data: rooms } = await supabase
-    .from('rooms')
-    .select(`
-      id,
-      name,
-      registration_token,
-      registration_open,
-      teams (id, code, name)
-    `)
-    .eq('event_id', event.id)
-    .order('name', { ascending: true })
+  // 2. Fetch Rooms, Rounds, Submissions count, and Sessions count in PARALLEL
+  const [roomsRes, roundsRes, submissionsRes, sessionsRes] = await Promise.all([
+    supabase
+      .from('rooms')
+      .select(`
+        id,
+        name,
+        registration_token,
+        registration_open,
+        teams (id, code, name)
+      `)
+      .eq('event_id', event.id)
+      .order('name', { ascending: true }),
+    supabase
+      .from('rounds')
+      .select('*')
+      .eq('event_id', event.id)
+      .order('order', { ascending: true }),
+    supabase
+      .from('submissions')
+      .select('id', { count: 'exact', head: true }),
+    supabase
+      .from('sessions')
+      .select('id', { count: 'exact', head: true }),
+  ])
 
-  // 3. Fetch Rounds
-  const { data: rounds } = await supabase
-    .from('rounds')
-    .select('*')
-    .eq('event_id', event.id)
-    .order('order', { ascending: true })
+  const rooms = roomsRes.data || []
+  let rounds = roundsRes.data || []
 
-  // 4. Fetch Submissions count
-  const { count: submissionCount } = await supabase
-    .from('submissions')
-    .select('id', { count: 'exact', head: true })
+  // Auto-seed default rounds if missing
+  if (rounds.length === 0) {
+    const { data: createdRounds } = await supabase
+      .from('rounds')
+      .insert([
+        {
+          event_id: event.id,
+          order: 1,
+          type: 'quiz',
+          status: 'upcoming',
+          config: { title: 'Round 1: Speed Quiz', total_questions: 12 },
+        },
+        {
+          event_id: event.id,
+          order: 2,
+          type: 'build',
+          status: 'upcoming',
+          config: { title: 'Round 2: Build & Submit', problem_statement: 'Build an innovative web or mobile application.' },
+        },
+      ])
+      .select()
+    if (createdRounds) {
+      rounds = createdRounds
+    }
+  }
 
-  // 5. Fetch Active Sessions count
-  const { count: sessionCount } = await supabase
-    .from('sessions')
-    .select('id', { count: 'exact', head: true })
-
-  const totalTeams = rooms ? rooms.reduce((acc, r) => acc + (r.teams?.length || 0), 0) : 0
+  const submissionCount = submissionsRes.count || 0
+  const sessionCount = sessionsRes.count || 0
+  const totalTeams = rooms.reduce((acc, r) => acc + (r.teams?.length || 0), 0)
 
   return {
     success: true,
     event,
-    rooms: rooms || [],
-    rounds: rounds || [],
+    rooms,
+    rounds,
     stats: {
-      totalRooms: rooms?.length || 0,
+      totalRooms: rooms.length,
       totalTeams,
-      activeSessions: sessionCount || 0,
-      totalSubmissions: submissionCount || 0,
+      activeSessions: sessionCount,
+      totalSubmissions: submissionCount,
       serverTime: new Date().toISOString(),
     },
   }

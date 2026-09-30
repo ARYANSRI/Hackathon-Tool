@@ -91,13 +91,6 @@ export default function AdminDashboardPage() {
       setRooms(res.rooms || [])
       setRounds(res.rounds || [])
       if (res.stats) setStats(res.stats)
-
-      // Ensure rounds exist
-      if (!res.rounds || res.rounds.length === 0) {
-        await ensureDefaultRounds(res.event.id)
-        const refreshed = await getAdminOverviewData()
-        if (refreshed.success) setRounds(refreshed.rounds || [])
-      }
     }
     setLoading(false)
   }
